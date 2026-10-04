@@ -1,0 +1,122 @@
+-- ============================================================================
+-- CITS1402 Relational Database Management Systems
+-- Project: Bubble Trouble
+-- File: testEvidence.txt
+-- ============================================================================
+
+
+----------------------------------------------------------------------
+TEST 1: REJECTED CHECK-CONSTRAINT CASE
+----------------------------------------------------------------------
+1. What was tested:
+Verified that inserting a product with an invalid status string gets rejected by the table constraint.
+
+2. SQL statement used:
+INSERT INTO Product (productId, productName, category, basePrice, status) 
+VALUES ('PR99', 'Matcha Taro Fusion', 'Latte', 6.50, 'AVAILABLE');
+
+3. Prediction before running:
+The statement will fail with a CHECK constraint error because status must be either 'ACTIVE' or 'DISCONTINUED'.
+
+4. What actually happened:
+Runtime error: CHECK constraint failed: status IN ('ACTIVE', 'DISCONTINUED') (19)
+
+5. Why it happened:
+The status value 'AVAILABLE' violates the CHECK constraint defined on the Product table.
+
+
+----------------------------------------------------------------------
+TEST 2: REJECTED FOREIGN-KEY CASE
+----------------------------------------------------------------------
+1. What was tested:
+Verified that adding an order for a memberId that does not exist in the Member table is blocked.
+
+2. SQL statement used:
+INSERT INTO SalesOrder (orderId, memberId, storeId, orderDate, orderTime) 
+VALUES (9999, 999, 'ST01', '2026-09-20', '14:30');
+
+3. Prediction before running:
+SQLite will block the insert due to a FOREIGN KEY constraint failure on memberId.
+
+4. What actually happened:
+Runtime error: FOREIGN KEY constraint failed (19)
+
+5. Why it happened:
+PRAGMA foreign_keys is enabled and memberId 999 does not exist in the Member table.
+
+
+----------------------------------------------------------------------
+TEST 3: LOYALTY BOUNDARY CASE INVOLVING THE 10TH DRINK
+----------------------------------------------------------------------
+1. What was tested:
+Verified that Sarah Jenkins (member 101), who already accumulated 9 drinks, gets her 10th drink priced at $0.00.
+
+2. SQL statement used:
+INSERT INTO SalesOrder VALUES (6001, 101, 'ST01', '2026-09-21', '10:00');
+INSERT INTO OrderItem (orderId, lineNo, productId, size, quantity, itemPrice, lineTotal) 
+VALUES (6001, 1, 'PR01', 'MEDIUM', 1, NULL, NULL);
+
+SELECT itemPrice, lineTotal FROM OrderItem WHERE orderId = 6001;
+
+3. Prediction before running:
+Because this is her 10th lifetime drink, itemPrice will calculate as 0.00 and lineTotal will be 0.00.
+
+4. What actually happened:
+itemPrice  lineTotal
+---------  ---------
+0.0        0.0
+
+5. Why it happened:
+The trigger detected that the accumulated drink count reached a multiple of 10 for this single drink, applying the 100% discount.
+
+
+----------------------------------------------------------------------
+TEST 4: MULTI-QUANTITY LOYALTY CASE
+----------------------------------------------------------------------
+1. What was tested:
+Verified lineTotal calculation when an order line contains multiple drinks that cross a loyalty reward threshold (e.g., drinks 9 through 13, where drink 10 is free).
+
+2. SQL statement used:
+INSERT INTO SalesOrder VALUES (6002, 102, 'ST02', '2026-09-22', '12:00');
+INSERT INTO OrderItem (orderId, lineNo, productId, size, quantity, itemPrice, lineTotal) 
+VALUES (6002, 1, 'PR04', 'LARGE', 3, NULL, NULL);
+
+SELECT itemPrice, lineTotal FROM OrderItem WHERE orderId = 6002;
+
+3. Prediction before running:
+David Patel (member 102) previously had 8 drinks. Ordering 3 drinks (drinks 9, 10, 11) means drink 10 is free. With base $5.50 + LARGE $1.00 = $6.50 unit price, 2 drinks are charged (2 x $6.50 = $13.00).
+
+4. What actually happened:
+itemPrice  lineTotal
+---------  ---------
+6.5        13.0
+
+5. Why it happened:
+The trigger calculated that 1 out of the 3 drinks in the quantity was eligible for the free 10th-drink reward, charging for only 2 drinks.
+
+
+----------------------------------------------------------------------
+TEST 5: ZERO-ACTIVITY ENTITY IN QUERY/VIEW
+----------------------------------------------------------------------
+1. What was tested:
+Verified that ingredients not used in any recipe still appear in the results with a product count of 0.
+
+2. SQL statement used:
+SELECT 
+    ingr.ingredientName, 
+    COUNT(DISTINCT rec.productId) AS productCount
+FROM Ingredient ingr
+LEFT JOIN Recipe rec ON ingr.ingredientId = rec.ingredientId
+WHERE ingr.ingredientId = 'ING10'
+GROUP BY ingr.ingredientId, ingr.ingredientName;
+
+3. Prediction before running:
+'Salty Cheese Cream' (ING10) is not in the Recipe table, so it should return with a productCount of 0.
+
+4. What actually happened:
+ingredientName      productCount
+------------------  ------------
+Salty Cheese Cream  0
+
+5. Why it happened:
+Using a LEFT JOIN retains ingredients with no matching recipes, causing COUNT(DISTINCT rec.productId) to evaluate to 0 for NULLs.
